@@ -1,0 +1,12 @@
+---
+title: "NotreDameGiving"
+author: "Imogen Meers"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+new_portfolio = read.csv("New Portfolio.csv")
+summary(new_portfolio)
+```
+
