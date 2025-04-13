@@ -5,6 +5,7 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
+## Data & Cleaning
 ```{r}
 new_portfolio = read.csv("New Portfolio.csv")
 summary(new_portfolio)
@@ -21,10 +22,68 @@ cols1_4y <- c("Most.Recent.Visit.Date")
 old_portfolio[cols1_2y] <- lapply(old_portfolio[cols1_2y], function(x) as.Date(x, format = "%m/%d/%y"))
 old_portfolio[cols1_2y] <- lapply(old_portfolio[cols1_4y], function(x) as.Date(x, format = "%m/%d/%Y"))
 
+old_portfolio$Last.Gift.Days.Ago = as.numeric(Sys.Date() - old_portfolio$Most.Recent.UNR.Gift.Date)
+
 # Take out $ at start --> numeric
 cols2 <- c("Most.Recent.UNR.Gift.Legal.Amount", "Most.Recent.UNR.Gift.Credit.Amount", "Capacity.Rating...Rating.Low.Amount.Dim", "Lifetime.Production.Household.Extended.Amount", "Current.Campaign.Production.Household.Extended.Amount", "Sorin...Current.Year..", "Sorin...One.Year.Prior..", "Rockne...Current.Year..", "Rockne...One.Year.Prior..", "Law...Current.Year..", "Law...One.Year.Prior..", "Grad.Bus...Current.Year..", "Grad.Bus...One.Year.Prior..", "X2025.FY.Matching.Gifts", "X2024.FY.Matching.Gifts", "X2025.FY.Total.Unrestricted.Gifts", "X2024.FY.Total.Unrestricted.Gifts", "X2023.FY.Total.Unrestricted.Gifts", "X2022.FY.Total.Unrestricted.Gifts", "X2021.FY.Total.Unrestricted.Gifts")
 old_portfolio[cols2] <- lapply(old_portfolio[cols2], function(x) as.numeric(gsub("[$,]", "", x)))
 
+old_portfolio$Zip.Code <- as.numeric(old_portfolio$Zip.Code)
+
+# Y/N to 1/0
+cols3 <- c("X70.5..Ind", "Has.Spouse.Indicator", "Participation.Donor.Current.Fiscal.Year", "Current.Parent.Ind", "Monogram...Big.4", "Monogram...Non.Big.4", "Dual.Domer.Household")
+old_portfolio[cols3] <- lapply(old_portfolio[cols3], function(x) ifelse(x == "Y", 1, ifelse(x == "N", 0, NA)))
+
+old_portfolio <- old_portfolio %>%
+  mutate(General.Active.Giving.Society = sub("^(\\S+).*", "\\1", Active.Giving.Society.Affiliation.List),
+         General.Gift.Designation = sub("^(\\S+).*", "\\1", Most.Recent.UNR.Gift.Designation))
+
 summary(old_portfolio)
 ```
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+
+nums <- old_portfolio %>% select(where(is.numeric)) %>% select(-ID.Number, -Household.ID, -X70.5..Ind)
+cor_matrix <- cor(nums, use = "complete.obs")
+
+cor_matrix_melted <- melt(cor_matrix)
+ggplot(cor_matrix_melted, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5),
+        axis.text.y = element_text(size = 5))
+```
+
+
+## Modeling
+Outcome vars: total donation, increase in last three years, society membership (1/0)
+
+Effect on Gift Amount over the Years
+```{r}
+library(tidyr)
+gift_cols <- c("X2021.FY.Total.Unrestricted.Gifts", "X2022.FY.Total.Unrestricted.Gifts", "X2023.FY.Total.Unrestricted.Gifts", 
+                  "X2024.FY.Total.Unrestricted.Gifts", "X2025.FY.Total.Unrestricted.Gifts")
+
+long_data_gifts <- old_portfolio %>%
+  gather(key = "Year", value = "Gift.Amount", all_of(gift_cols)) %>%
+  mutate(Year = as.integer(gsub("X", "", gsub(".FY.Total.Unrestricted.Gifts", "", Year))))
+```
+
+```{r}
+library(lme4)
+library(lmerTest)
+
+# scale
+long_data_gifts_scaled <- long_data_gifts %>%
+  mutate(across(where(is.numeric) & !starts_with("Gift.Amount"), scale))
+
+model <- lmer(Gift.Amount ~ Age + General.Gift.Designation + Consecutive.Years + General.Active.Giving.Society + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Last.Gift.Days.Ago + (1 | ID.Number), data = long_data_gifts_scaled)
+
+summary(model)
+```
+
 
