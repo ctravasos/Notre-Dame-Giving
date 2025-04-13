@@ -10,3 +10,21 @@ new_portfolio = read.csv("New Portfolio.csv")
 summary(new_portfolio)
 ```
 
+```{r}
+old_portfolio = read.csv("Old Portfolio.csv")
+
+# cleaning
+# Char --> Date
+cols1_2y <- c("Most.Recent.UNR.Gift.Date", "Sorin...Renewal.Date", "Rockne...Renewal.Date", "Law...Renewal.Date", "Grad.Bus...Renewal.Date")
+cols1_4y <- c("Most.Recent.Visit.Date")
+
+old_portfolio[cols1_2y] <- lapply(old_portfolio[cols1_2y], function(x) as.Date(x, format = "%m/%d/%y"))
+old_portfolio[cols1_2y] <- lapply(old_portfolio[cols1_4y], function(x) as.Date(x, format = "%m/%d/%Y"))
+
+# Take out $ at start --> numeric
+cols2 <- c("Most.Recent.UNR.Gift.Legal.Amount", "Most.Recent.UNR.Gift.Credit.Amount", "Capacity.Rating...Rating.Low.Amount.Dim", "Lifetime.Production.Household.Extended.Amount", "Current.Campaign.Production.Household.Extended.Amount", "Sorin...Current.Year..", "Sorin...One.Year.Prior..", "Rockne...Current.Year..", "Rockne...One.Year.Prior..", "Law...Current.Year..", "Law...One.Year.Prior..", "Grad.Bus...Current.Year..", "Grad.Bus...One.Year.Prior..", "X2025.FY.Matching.Gifts", "X2024.FY.Matching.Gifts", "X2025.FY.Total.Unrestricted.Gifts", "X2024.FY.Total.Unrestricted.Gifts", "X2023.FY.Total.Unrestricted.Gifts", "X2022.FY.Total.Unrestricted.Gifts", "X2021.FY.Total.Unrestricted.Gifts")
+old_portfolio[cols2] <- lapply(old_portfolio[cols2], function(x) as.numeric(gsub("[$,]", "", x)))
+
+summary(old_portfolio)
+```
+
