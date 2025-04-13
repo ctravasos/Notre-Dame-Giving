@@ -11,7 +11,8 @@ new_portfolio = read.csv("New Portfolio.csv")
 summary(new_portfolio)
 ```
 
-```{r}
+```{r, message = FALSE, warning = FALSE}
+library(dplyr)
 old_portfolio = read.csv("Old Portfolio.csv")
 
 # cleaning
@@ -37,6 +38,28 @@ old_portfolio[cols3] <- lapply(old_portfolio[cols3], function(x) ifelse(x == "Y"
 old_portfolio <- old_portfolio %>%
   mutate(General.Active.Giving.Society = sub("^(\\S+).*", "\\1", Active.Giving.Society.Affiliation.List),
          General.Gift.Designation = sub("^(\\S+).*", "\\1", Most.Recent.UNR.Gift.Designation))
+
+# Region
+old_portfolio$Region <- dplyr::case_when(
+  old_portfolio$Preferred.Address...State.Code %in% c("WA", "OR", "ID", "MT", "WY", "AK") ~ "Northwest",
+  old_portfolio$Preferred.Address...State.Code %in% c("CA", "NV", "AZ", "NM", "UT", "CO") ~ "Southwest",
+  old_portfolio$Preferred.Address...State.Code == "IL" ~ "Illinois",
+  old_portfolio$Preferred.Address...State.Code %in% c("TX", "FL", "GA", "NC", "SC", "AL", "TN", "LA", "MS", "KY", "OK", "AR") 
+  ~ "Southern",
+  old_portfolio$Preferred.Address...State.Code %in% c("OH", "MI", "IN", "WI", "MO", "IA", "KS", "NE", "MN", "ND", "SD") 
+  ~ "Central",
+  old_portfolio$Preferred.Address...State.Code %in% c("NY", "NJ", "CT") ~ "NY Metro",
+  old_portfolio$Preferred.Address...State.Code %in% c("PA", "MA", "MD", "VA", "DE", "RI", "NH", "VT", "ME", "DC") 
+  ~ "East Coast",
+  TRUE ~ "Other")
+
+# Age Group
+old_portfolio$Age.Group <- cut(
+  old_portfolio$Age,
+  breaks = c(-Inf, 17, 22, 34, 44, 59, 75, Inf),
+  labels = c("<18", "18–22", "23–34", "35–44", "45–59", "60–75", "75+"),
+  right = TRUE
+)
 
 summary(old_portfolio)
 ```
@@ -78,12 +101,27 @@ library(lme4)
 library(lmerTest)
 
 # scale
-long_data_gifts_scaled <- long_data_gifts %>%
-  mutate(across(where(is.numeric) & !starts_with("Gift.Amount"), scale))
+long_data_gifts_scaled <- long_data_gifts %>% select(-ID.Number, -Gift.Amount) %>% select(where(is.numeric)) %>% scale() %>% as.data.frame
+non_numeric_data <- long_data_gifts %>% select(where(~ !is.numeric(.)))
+long_data_gifts_scaled$ID.Number <- long_data_gifts$ID.Number
+long_data_gifts_scaled$Gift.Amount <- long_data_gifts$Gift.Amount
+long_data_gifts_scaled <- cbind(non_numeric_data, long_data_gifts_scaled)
 
-model <- lmer(Gift.Amount ~ Age + General.Gift.Designation + Consecutive.Years + General.Active.Giving.Society + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Last.Gift.Days.Ago + (1 | ID.Number), data = long_data_gifts_scaled)
+model <- lmer(Gift.Amount ~ Age.Group + Age + Region + General.Gift.Designation + Consecutive.Years + General.Active.Giving.Society + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Last.Gift.Days.Ago + (1 | ID.Number), data = long_data_gifts_scaled)
 
 summary(model)
 ```
 
+```{r}
+model_data <- model@frame
+model_data$Predicted.Gift.Amount <- predict(model)
+
+
+top_1000_by_region <- model_data %>%
+  distinct(ID.Number, .keep_all = TRUE) %>%  
+  group_by(Region) %>%
+  arrange(desc(Predicted.Gift.Amount)) %>%
+  slice_head(n = 1000) %>% 
+  ungroup()
+```
 
