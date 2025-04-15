@@ -64,6 +64,7 @@ old_portfolio$Age.Group <- cut(
 summary(old_portfolio)
 ```
 
+Correlation
 ```{r}
 library(ggplot2)
 library(reshape2)
@@ -81,6 +82,43 @@ ggplot(cor_matrix_melted, aes(Var1, Var2, fill = value)) +
         axis.text.y = element_text(size = 5))
 ```
 
+## Exploratory
+Gift amount by region
+```{r}
+old_portfolio %>% group_by(Region) %>%
+  summarize(n_people = length(unique(ID.Number)),
+            total_gifts_amount = sum(Lifetime.Production.Household.Extended.Amount),
+            avg_gift_amount = mean(Most.Recent.UNR.Gift.Legal.Amount, na.rm = TRUE))
+```
+
+Gift amount by society
+```{r}
+old_portfolio %>% group_by(Active.Giving.Society.Affiliation.List) %>%
+  summarize(n_people = length(unique(ID.Number)),
+            total_gifts_amount = sum(Lifetime.Production.Household.Extended.Amount),
+            avg_gift_amount = mean(Most.Recent.UNR.Gift.Legal.Amount, na.rm = TRUE))
+```
+
+Gift amount by month of gift
+```{r, message = FALSE}
+library(lubridate)
+monthly <- old_portfolio %>% 
+  mutate(month = month(Most.Recent.UNR.Gift.Date)) %>%
+  group_by(month) %>%
+  summarize(n_people = length(unique(ID.Number)),
+            total_gifts_amount = sum(Lifetime.Production.Household.Extended.Amount),
+            avg_gift_amount = mean(Most.Recent.UNR.Gift.Legal.Amount, na.rm = TRUE)) %>%
+  filter(!is.na(month))
+
+ggplot(monthly, aes(x = month)) +
+  geom_point(aes(y = total_gifts_amount, color = "total_gifts_amount")) +
+  geom_line(aes(y = total_gifts_amount, color = "total_gifts_amount")) +
+  geom_point(aes(y = avg_gift_amount*10000, color = "avg_gift_amount")) +
+  geom_line(aes(y = avg_gift_amount*10000, color = "avg_gift_amount")) +
+  scale_color_manual(values = c( "total_gifts_amount" = "purple", "avg_gift_amount" = "blue"),
+    name = "Metric") +
+  ggtitle("When Do People Donate?") + theme_minimal()
+```
 
 ## Modeling
 Outcome vars: total donation, increase in last three years, society membership (1/0)
