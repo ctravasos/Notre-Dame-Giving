@@ -91,6 +91,14 @@ old_portfolio %>% group_by(Region) %>%
             avg_gift_amount = mean(Most.Recent.UNR.Gift.Legal.Amount, na.rm = TRUE))
 ```
 
+Gift amount by state
+```{r}
+old_portfolio %>% group_by(Preferred.Address...State.Code) %>%
+  summarize(n_people = length(unique(ID.Number)),
+            total_gifts_amount = sum(Lifetime.Production.Household.Extended.Amount),
+            avg_gift_amount = mean(Most.Recent.UNR.Gift.Legal.Amount, na.rm = TRUE))
+```
+
 Gift amount by society
 ```{r}
 old_portfolio %>% group_by(Active.Giving.Society.Affiliation.List) %>%
@@ -119,6 +127,58 @@ ggplot(monthly, aes(x = month)) +
     name = "Metric") +
   ggtitle("When Do People Donate?") + theme_minimal()
 ```
+
+## Summary Stats
+```{r, warning = FALSE}
+# average age
+avg_age <- mean(old_portfolio$Age, na.rm = TRUE)
+avg_age
+                
+# where are donations going?
+top10_donation_locs <- sort(table(old_portfolio$Most.Recent.UNR.Gift.Designation), decreasing = TRUE)[1:10]
+top10_donation_locs
+
+top10_donation_locs_amount <- old_portfolio %>%
+  group_by(Most.Recent.UNR.Gift.Designation) %>%
+  summarise(avg_given_2024 = mean(X2024.FY.Total.Unrestricted.Gifts, na.rm = TRUE)) %>%
+  arrange(desc(avg_given_2024)) %>% slice_head(n = 10)
+top10_donation_locs_amount
+
+
+# top 10 locations (zip, state) --> in terms of count of donors
+top10_zips <- sort(table(old_portfolio$Zip.Code), decreasing = TRUE)[1:10]
+top10_zips
+top10_states <- sort(table(old_portfolio$Preferred.Address...State.Code), decreasing = TRUE)[1:10]
+top10_states
+
+# <5, 5-10, 10-25, 25+ --> average amount given
+groups <- old_portfolio %>%
+  mutate(consecutive_year_group = case_when(
+    Consecutive.Years < 5 ~ "<5",
+    Consecutive.Years >= 5 & Consecutive.Years < 10 ~ "5-10",
+    Consecutive.Years >= 10 & Consecutive.Years < 15 ~ "10-15",
+    Consecutive.Years >= 15 & Consecutive.Years < 20 ~ "15-20",
+    Consecutive.Years >= 20 ~ "20+"
+  )) %>%
+  group_by(consecutive_year_group) %>%
+  summarise(avg_amount_2024 = mean(X2024.FY.Total.Unrestricted.Gifts, na.rm = TRUE)) %>%
+  arrange(match(consecutive_year_group, c("<5", "5-10", "10-15", "15-20", "20+")))
+groups
+
+# what age do people typically start donating? (count by age group & amount)
+age_counts <- old_portfolio %>%
+  group_by(Age) %>% summarize(count = n(),
+                              avg_donation_2024 = mean(X2024.FY.Total.Unrestricted.Gifts, na.rm = TRUE),
+                              avg_donation_2023 = mean(X2023.FY.Total.Unrestricted.Gifts, na.rm = TRUE)) %>%
+  filter(Age > 17)
+ggplot(age_counts, aes(x = Age)) + 
+  geom_line(aes(y = count, color = "# Donors")) + 
+  geom_line(aes(y = avg_donation_2024, color = "Avg. UNR Gifts 2024")) + 
+  geom_line(aes(y = avg_donation_2023, color = "Avg. UNR Gifts 2023")) + 
+  scale_color_manual(values = c("# Donors" = "blue", "Avg. UNR Gifts 2024" = "purple")) +
+  theme_minimal()
+```
+
 
 ## Modeling
 Outcome vars: total donation, increase in last three years, society membership (1/0)
