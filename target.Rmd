@@ -1,0 +1,25 @@
+---
+title: "Target_People"
+author: "Sarah Deussing"
+date: "2025-04-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+target <- old_portfolio %>% filter(Age >= 25 & Age < 45)
+sample <- old_portfolio %>% filter(X70.5..Ind == 1) %>% sample_frac(0.25)
+
+target <- rbind(target, sample)
+nrow(target)
+```
+
+Want 1,000 per major region
+```{r}
+target %>% group_by(Region) %>%
+  summarize(count = n())
+```
+
