@@ -149,3 +149,308 @@ sig_coef
 
 
 
+Early Spending patterns
+```{r}
+early_spending <- old_portfolio %>%
+  filter(Consecutive.Years <= 5)
+
+late_spending <- old_portfolio %>%
+  filter(Consecutive.Years > 5)
+```
+
+```{r}
+summary(early_spending)
+```
+
+
+Designations
+```{r}
+plot_dat1 <- old_portfolio %>% 
+  filter(
+    !is.na(Most.Recent.UNR.Gift.Designation),
+    !is.na(Consecutive.Years),
+  ) %>% 
+  mutate(years_grp = if_else(Consecutive.Years <= 5, "≤ 5 years", "> 5 years"))
+
+ggplot(plot_dat1,
+       aes(x = Most.Recent.UNR.Gift.Designation,
+           fill = years_grp)) +              
+  geom_bar(position = "stack") +            
+  scale_fill_manual(values = c("≤ 5 years" = "steelblue",
+                               "> 5 years" = "tomato")) +
+  labs(x = NULL, y = "Count", fill = "Consecutive years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+funds with more than 500
+```{r}
+library(dplyr)
+library(ggplot2)
+
+plot_dat1 <- old_portfolio %>% 
+  filter(
+    !is.na(Most.Recent.UNR.Gift.Designation),
+    !is.na(Consecutive.Years)
+  ) %>% 
+  mutate(
+    years_grp = if_else(Consecutive.Years <= 5, "≤ 5 years", "> 5 years")
+  ) %>% 
+  add_count(Most.Recent.UNR.Gift.Designation, name = "cat_total") %>%  
+  filter(cat_total > 250)                                             
+
+ggplot(plot_dat1,
+       aes(x   = Most.Recent.UNR.Gift.Designation,
+           fill = years_grp)) +
+  geom_bar(position = "stack") +
+  scale_fill_manual(values = c("≤ 5 years" = "steelblue",
+                               "> 5 years" = "tomato")) +
+  labs(x = NULL, y = "Count", fill = "Consecutive years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+top zip codes
+```{r}
+library(dplyr)
+library(ggplot2)
+
+plot_dat2 <- old_portfolio %>% 
+  filter(
+    !is.na(Zip.Code),
+    !is.na(Consecutive.Years)
+  ) %>% 
+  mutate(
+    years_grp = if_else(Consecutive.Years <= 5, "≤ 5 years", "> 5 years")
+  )
+
+library(dplyr)                      
+
+top50 <- plot_dat2 %>% 
+  group_by(Zip.Code) %>% 
+  dplyr::summarise(n = dplyr::n()) %>%   
+  ungroup() %>%                          
+  arrange(desc(n)) %>% 
+  slice_head(n = 50) %>% 
+  pull(Zip.Code)
+
+
+plot_top <- plot_dat2 %>% 
+  filter(Zip.Code %in% top50) %>% 
+  mutate(
+    Zip.Code = factor(
+      Zip.Code,
+      levels = top50                             
+    )
+  )
+
+
+ggplot(plot_top,
+       aes(x = Zip.Code,
+           fill = years_grp)) +              
+  geom_bar(position = "stack") +            
+  scale_fill_manual(values = c("≤ 5 years" = "steelblue",
+                               "> 5 years" = "tomato")) +
+  labs(x = "Zip Code", y = "Count", fill = "Consecutive years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+Age vs zip code (top 30)
+```{r}
+library(dplyr)
+library(ggplot2)
+library(viridis)
+
+# 1.  Recompute age bins and total counts per ZIP
+plot_dat3 <- old_portfolio %>% 
+  filter(!is.na(Age), !is.na(Zip.Code)) %>% 
+  mutate(
+    age_bin = cut(
+      Age,
+      breaks = c(0, 25, 35, 45, 55, 65, Inf),
+      labels = c("<25", "25–34", "35–44", "45–54", "55–64", "65+"),
+      right  = FALSE
+    )
+  )
+
+# 2.  Find the top 30 ZIP codes overall
+top30_zips <- plot_dat3 %>% 
+  dplyr::count(Zip.Code, sort = TRUE) %>%   # total donors per ZIP
+  slice_head(n = 30) %>% 
+  pull(Zip.Code)
+
+# 3.  Build heat data only for those ZIPs
+heat_dat_top30 <- plot_dat3 %>% 
+  filter(Zip.Code %in% top30_zips) %>% 
+  group_by(age_bin, Zip.Code) %>% 
+  dplyr::summarise(n = dplyr::n(), .groups = "drop") %>% 
+  mutate(
+    # reorder ZIPs so the biggest is at the top
+    Zip.Code = factor(Zip.Code, levels = top30_zips)
+  )
+
+
+# 4.  Plot the heat map
+ggplot(heat_dat_top30,
+       aes(x = age_bin,
+           y = Zip.Code,
+           fill = n)) +
+  geom_tile(colour = "grey30") +
+  scale_fill_viridis_c(name = "Donor count") +
+  labs(x = "Age group", y = "ZIP Code") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 6)  # make room for 30 labels
+  )
+
+```
+
+Age vs fund
+```{r}
+library(dplyr)
+library(ggplot2)
+library(viridis)
+
+plot_dat3 <- old_portfolio %>% 
+  filter(!is.na(Age),
+         !is.na(Most.Recent.UNR.Gift.Designation)) %>% 
+  mutate(
+    age_bin = cut(
+      Age,
+      breaks = c(0, 25, 35, 45, 55, 65, Inf),
+      labels = c("<25", "25–34", "35–44", "45–54", "55–64", "65+"),
+      right  = FALSE
+    )
+  )
+
+
+library(dplyr)
+
+heat_dat <- plot_dat3 %>% 
+  group_by(age_bin, Most.Recent.UNR.Gift.Designation) %>% 
+  dplyr::summarise(n = dplyr::n()) %>%     
+  ungroup()                                
+
+
+ggplot(heat_dat,
+       aes(x = age_bin,
+           y = Most.Recent.UNR.Gift.Designation,
+           fill = n)) +
+  geom_tile(colour = "grey30") +
+  scale_fill_viridis_c(name = "Donor count") +
+  labs(x = "Age group", y = "Fund") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r}
+plot_dat4 <- old_portfolio %>% 
+  filter(
+    !is.na(Age),
+    !is.na(Consecutive.Years)
+  ) %>% 
+  mutate(years_grp = if_else(Consecutive.Years <= 5, "≤ 5 years", "> 5 years"))
+
+
+ggplot(plot_dat4,
+       aes(x = Age,
+           fill = years_grp)) +              # <- fill comes from the new column
+  geom_bar(position = "stack") +             # stacks ≤5 and >5 inside each bar
+  scale_fill_manual(values = c("≤ 5 years" = "steelblue",
+                               "> 5 years" = "tomato")) +
+  labs(x = NULL, y = "Count", fill = "Consecutive years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+plot_dat5 <- old_portfolio %>% 
+  filter(
+    !is.na(Has.Spouse.Indicator),
+    !is.na(Consecutive.Years)
+  ) %>% 
+  mutate(years_grp = if_else(Consecutive.Years <= 5, "≤ 5 years", "> 5 years"))
+
+ggplot(plot_dat5,
+       aes(x = Has.Spouse.Indicator,
+           fill = years_grp)) +              # <- fill comes from the new column
+  geom_bar(position = "stack") +             # stacks ≤5 and >5 inside each bar
+  scale_fill_manual(values = c("≤ 5 years" = "steelblue",
+                               "> 5 years" = "tomato")) +
+  labs(x = "Has Spouse", y = "Count", fill = "Consecutive years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+```{r}
+plot_dat6 <- old_portfolio %>% 
+  filter(
+    !is.na(College),
+    !is.na(Consecutive.Years)
+  ) %>% 
+  mu
+    College = if_else(str_detect(College, regex("Notre\\s+Dame", ignore_case = TRUE)),
+                      "Notre Dame", "Not Notre Dame"),
+    years_grp = if_else(Consecutive.Years <= 5, "≤ 5 years", "> 5 years")
+  )
+
+ggplot(plot_dat6,
+       aes(x = College, fill = years_grp)) +
+  geom_bar(position = "stack") +
+  scale_fill_manual(values = c("≤ 5 years" = "steelblue",
+                               "> 5 years" = "tomato")) +
+  labs(x = NULL, y = "Count", fill = "Consecutive years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+plot_dat7 <- old_portfolio %>% 
+  filter(
+    !is.na(Current.Parent.Ind),
+    !is.na(Consecutive.Years)
+  ) %>% 
+  mutate(years_grp = if_else(Consecutive.Years <= 5, "≤ 5 years", "> 5 years"))
+
+ggplot(plot_dat7,
+       aes(x = Current.Parent.Ind,
+           fill = years_grp)) +              
+  geom_bar(position = "stack") +             
+  scale_fill_manual(values = c("≤ 5 years" = "steelblue",
+                               "> 5 years" = "tomato")) +
+  labs(x = "Current Parent (N/Y)", y = "Count", fill = "Consecutive years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+plot_dat8 <- old_portfolio %>% 
+  filter(
+    !is.na(Dual.Domer.Household),
+    !is.na(Consecutive.Years)
+  ) %>% 
+  mutate(years_grp = if_else(Consecutive.Years <= 5, "≤ 5 years", "> 5 years"))
+
+ggplot(plot_dat8,
+       aes(x = Dual.Domer.Household,
+           fill = years_grp)) +              
+  geom_bar(position = "stack") +             
+  scale_fill_manual(values = c("≤ 5 years" = "steelblue",
+                               "> 5 years" = "tomato")) +
+  labs(x = 
+        "Dual Domer N/Y", y = "Count", fill = "Consecutive years") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
