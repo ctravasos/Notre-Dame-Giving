@@ -106,47 +106,54 @@ summary(model)
 ```
 
 ```{r}
-broom::tidy(model) %>% filter(p.value < .05) %>% arrange(desc(abs(estimate)))
-```
-
-
-```{r}
 plot(model, which = 1) # residuals vs fitted
 ```
-more errors after a few decades
 
 
 ```{r}
 plot(model, which = 2) # Q‑Q plot
 ```
-model under predicts high tenure donors
 
 
+weighted least squares (much better)
 ```{r}
-model_trim <- lm(
-  Consecutive.Years ~
+old_clean <- old_portfolio %>%
+  select(
+    Consecutive.Years, Age.Group, Age, Region,
+    General.Gift.Designation, General.Active.Giving.Society,
+    Current.Parent.Ind, Monogram...Big.4, Monogram...Non.Big.4,
+    Dual.Domer.Household, Last.Gift.Days.Ago
+  ) %>%
+  na.omit()
+
+library(nlme)
+gls_mod <- gls(
+  Consecutive.Years ~ 
+    Age.Group +
     Age +
     Region +
+    General.Gift.Designation +
     General.Active.Giving.Society +
+    Current.Parent.Ind +
     Monogram...Big.4 +
     Monogram...Non.Big.4 +
     Dual.Domer.Household +
     Last.Gift.Days.Ago,
-  data = old_portfolio
+  weights = varExp(form = ~ fitted(.)),
+  data = old_clean
 )
+
+summary(gls_mod)
 ```
+
+A handful of gift designations (e.g. Student, Notre, Rockne).
 
 ```{r}
-library(broom)
-
-sig_coef <- model_trim %>%
-  tidy() %>%
-  filter(p.value < .05) %>%            
-  arrange(desc(abs(estimate)))         
-
-sig_coef
+AIC(model, gls_mod)
 ```
-
+```{r}
+plot(gls_mod, resid(., type="normalized") ~ fitted(.), abline = TRUE)
+```
 
 
 Early Spending patterns
@@ -350,6 +357,24 @@ ggplot(heat_dat,
 
 ```
 
+
+Age
+```{r}
+age_plot_dat <- old_portfolio %>%
+  filter(Age > 10)
+
+max_age <- ceiling(max(age_plot_dat$Age, na.rm = TRUE) / 10) * 10
+
+ggplot(age_plot_dat,
+       aes(x = Age)) +             
+  geom_bar(fill = "darkblue") +            
+  scale_fill_manual(values = c("≤ 5 years" = "steelblue",
+                               "> 5 years" = "tomato")) +
+  labs(x = NULL, y = "Count", fill = "Consecutive years") +
+  theme_minimal() + 
+  scale_x_continuous(breaks = seq(10, max_age, by = 10))
+```
+
 ```{r}
 plot_dat4 <- old_portfolio %>% 
   filter(
@@ -453,4 +478,43 @@ ggplot(plot_dat8,
         "Dual Domer N/Y", y = "Count", fill = "Consecutive years") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+
+
+
+Effect on gift amount for those with tenure
+```{r}
+library(tidyr)
+gift_cols <- c("X2021.FY.Total.Unrestricted.Gifts", "X2022.FY.Total.Unrestricted.Gifts", "X2023.FY.Total.Unrestricted.Gifts", 
+                  "X2024.FY.Total.Unrestricted.Gifts", "X2025.FY.Total.Unrestricted.Gifts")
+
+long_data_5 <- old_portfolio %>%
+  filter(Consecutive.Years >= 5) %>%
+  gather(key = "Year", value = "Gift.Amount", all_of(gift_cols)) %>%
+  mutate(Year = as.integer(gsub("X", "", gsub(".FY.Total.Unrestricted.Gifts", "", Year))))
+```
+
+```{r}
+library(lme4)
+library(lmerTest)
+library(dplyr)
+library(tidyr)
+
+long_data_5_scaled <- long_data_5 %>%
+  dplyr::select(-ID.Number, -Gift.Amount) %>%  
+  dplyr::select(where(is.numeric)) %>%       
+  scale() %>%
+  as.data.frame()
+
+non_numeric_5 <- long_data_5 %>% dplyr::select(where(~ !is.numeric(.)))
+long_data_5_scaled$ID.Number <- long_data_5$ID.Number
+long_data_5_scaled$Gift.Amount <- long_data_5$Gift.Amount
+long_data_5_scaled <- cbind(non_numeric_5, long_data_5_scaled)
+
+model <- lmer(Gift.Amount ~ Age.Group + Age + Region + General.Gift.Designation + Consecutive.Years + General.Active.Giving.Society + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Last.Gift.Days.Ago + (1 | ID.Number), data = long_data_5_scaled)
+
+summary(model)
 ```
