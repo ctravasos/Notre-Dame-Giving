@@ -156,6 +156,58 @@ plot(gls_mod, resid(., type="normalized") ~ fitted(.), abline = TRUE)
 ```
 
 
+Random Forest
+```{r}
+library(randomForest)
+library(rpart)
+library(caret)
+library(splitstackshape)
+```
+
+```{r}
+# returns a named vector of NA‐counts
+na_counts <- colSums(is.na(old_portfolio))
+
+cols_with_na <- names(na_counts)[na_counts > 0]
+cols_with_na
+```
+
+```{r}
+
+cols_with_na <- setdiff(
+  cols_with_na,
+  c("Age", "X2025.FY.Total.Unrestricted.Gifts", "X2024.FY.Total.Unrestricted.Gifts", "X2023.FY.Total.Unrestricted.Gifts", "X2022.FY.Total.Unrestricted.Gifts", "X2021.FY.Total.Unrestricted.Gifts", "Most.Recent.UNR.Gift.Date" )
+)
+
+print(cols_with_na)
+```
+
+```{r}
+train_data <- old_portfolio %>% 
+  select(-cols_with_na) %>%
+  mutate(
+        X2025.FY.Total.Unrestricted.Gifts = replace_na(X2025.FY.Total.Unrestricted.Gifts, 0),
+        X2024.FY.Total.Unrestricted.Gifts = replace_na(X2024.FY.Total.Unrestricted.Gifts, 0),
+        X2023.FY.Total.Unrestricted.Gifts = replace_na(X2023.FY.Total.Unrestricted.Gifts, 0),
+        X2022.FY.Total.Unrestricted.Gifts = replace_na(X2022.FY.Total.Unrestricted.Gifts, 0),
+        X2021.FY.Total.Unrestricted.Gifts = replace_na(X2021.FY.Total.Unrestricted.Gifts, 0)) %>%
+  filter(Most.Recent.UNR.Gift.Date < '2025-01-01')
+```
+
+```{r}
+train_data$Age[is.na(train_data$Age)] <- mean(train_data$Age, na.rm = TRUE)
+```
+
+```{r}
+set.seed(12345)
+
+bag_mod <- randomForest(Consecutive.Years ~.,
+                        data = train_data)
+
+bag_mod
+```
+
+
 Early Spending patterns
 ```{r}
 early_spending <- old_portfolio %>%
@@ -335,7 +387,7 @@ plot_dat3 <- old_portfolio %>%
     )
   )
 
-
+ploy
 library(dplyr)
 
 heat_dat <- plot_dat3 %>% 
@@ -370,7 +422,7 @@ ggplot(age_plot_dat,
   geom_bar(fill = "darkblue") +            
   scale_fill_manual(values = c("≤ 5 years" = "steelblue",
                                "> 5 years" = "tomato")) +
-  labs(x = NULL, y = "Count", fill = "Consecutive years") +
+  labs(x = "Age", y = "Donation Count", fill = "Consecutive years", title = "Donation Count by Age") +
   theme_minimal() + 
   scale_x_continuous(breaks = seq(10, max_age, by = 10))
 ```
@@ -423,9 +475,8 @@ plot_dat6 <- old_portfolio %>%
     !is.na(College),
     !is.na(Consecutive.Years)
   ) %>% 
-  mu
     College = if_else(str_detect(College, regex("Notre\\s+Dame", ignore_case = TRUE)),
-                      "Notre Dame", "Not Notre Dame"),
+                      "Notre Dame", "Not Notre Dame")
     years_grp = if_else(Consecutive.Years <= 5, "≤ 5 years", "> 5 years")
   )
 
@@ -481,6 +532,32 @@ ggplot(plot_dat8,
 ```
 
 
+```{r}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+
+plot_dat9 <- old_portfolio %>%
+  filter(!is.na(Most.Recent.UNR.Gift.Date)) %>%
+  mutate(Most.Recent.UNR.Gift.Date = as.Date(Most.Recent.UNR.Gift.Date)) %>%
+  mutate(
+    month = month(Most.Recent.UNR.Gift.Date,
+                  label = TRUE,    
+                  abbr  = TRUE   
+    )
+  )
+
+ggplot(plot_dat9, aes(x = month)) +
+  geom_bar(fill = "darkblue") +
+  labs(
+    x = "Donation Month",
+    y = "Count of Donations",
+    title = "Most Common Donation Months"
+  ) +
+  theme_minimal()
+  
+
+```
 
 
 
