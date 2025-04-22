@@ -1,0 +1,317 @@
+---
+title: "Models & Target Dataset"
+author: "Sarah Deussing"
+date: "2025-04-22"
+output: html_document
+---
+
+## Data & Cleaning
+```{r, message = FALSE, warning = FALSE}
+library(dplyr)
+old_portfolio = read.csv("Old Portfolio.csv")
+
+# cleaning
+# Char --> Date
+cols1_2y <- c("Most.Recent.UNR.Gift.Date", "Sorin...Renewal.Date", "Rockne...Renewal.Date", "Law...Renewal.Date", "Grad.Bus...Renewal.Date")
+cols1_4y <- c("Most.Recent.Visit.Date")
+
+old_portfolio[cols1_2y] <- lapply(old_portfolio[cols1_2y], function(x) as.Date(x, format = "%m/%d/%y"))
+old_portfolio[cols1_2y] <- lapply(old_portfolio[cols1_4y], function(x) as.Date(x, format = "%m/%d/%Y"))
+
+old_portfolio$Last.Gift.Days.Ago = as.numeric(Sys.Date() - old_portfolio$Most.Recent.UNR.Gift.Date)
+
+# Take out $ at start --> numeric
+cols2 <- c("Most.Recent.UNR.Gift.Legal.Amount", "Most.Recent.UNR.Gift.Credit.Amount", "Capacity.Rating...Rating.Low.Amount.Dim", "Lifetime.Production.Household.Extended.Amount", "Current.Campaign.Production.Household.Extended.Amount", "Sorin...Current.Year..", "Sorin...One.Year.Prior..", "Rockne...Current.Year..", "Rockne...One.Year.Prior..", "Law...Current.Year..", "Law...One.Year.Prior..", "Grad.Bus...Current.Year..", "Grad.Bus...One.Year.Prior..", "X2025.FY.Matching.Gifts", "X2024.FY.Matching.Gifts", "X2025.FY.Total.Unrestricted.Gifts", "X2024.FY.Total.Unrestricted.Gifts", "X2023.FY.Total.Unrestricted.Gifts", "X2022.FY.Total.Unrestricted.Gifts", "X2021.FY.Total.Unrestricted.Gifts")
+old_portfolio[cols2] <- lapply(old_portfolio[cols2], function(x) as.numeric(gsub("[$,]", "", x)))
+
+old_portfolio$Zip.Code <- as.numeric(old_portfolio$Zip.Code)
+
+# Y/N to 1/0
+cols3 <- c("X70.5..Ind", "Has.Spouse.Indicator", "Participation.Donor.Current.Fiscal.Year", "Current.Parent.Ind", "Monogram...Big.4", "Monogram...Non.Big.4", "Dual.Domer.Household")
+old_portfolio[cols3] <- lapply(old_portfolio[cols3], function(x) ifelse(x == "Y", 1, ifelse(x == "N", 0, NA)))
+
+old_portfolio <- old_portfolio %>%
+  mutate(General.Active.Giving.Society = sub("^(\\S+).*", "\\1", Active.Giving.Society.Affiliation.List),
+         General.Gift.Designation = sub("^(\\S+).*", "\\1", Most.Recent.UNR.Gift.Designation))
+
+# Age Group
+old_portfolio$Age.Group <- cut(
+  old_portfolio$Age,
+  breaks = c(-Inf, 17, 22, 34, 44, 59, 75, Inf),
+  labels = c("<18", "18–22", "23–34", "35–44", "45–59", "60–75", "75+"),
+  right = TRUE
+)
+
+#summary(old_portfolio)
+```
+
+```{r}
+assign_region <- function(state, zip) {
+  zip_prefix <- as.numeric(substr(as.character(zip), 1, 3))
+  
+  if (state == "CA") {
+    if (!is.na(zip_prefix) && zip_prefix < 936) {
+      return("Southwest")
+    } else {
+      return("Northwest")
+    }
+  } else if (state == "NV") {
+    if (!is.na(zip_prefix) && zip_prefix < 898) {
+      return("Southwest")
+    } else {
+      return("Northwest")
+    }
+  } else if (state == "WI") {
+    if (!is.na(zip_prefix) && zip_prefix < 536) {
+      return("Illinois")
+    } else {
+      return("Northwest")
+    }
+  } else if (state == "PA") {
+    if (!is.na(zip_prefix) && zip_prefix < 160) {
+      return("Central")
+    } else {
+      return("East Coast")
+    }
+  } else if (state %in% c("WA", "OR", "MT", "ID", "ND", "SD", "NE", "MN", "IA")) {
+    return("Northwest")
+  } else if (state %in% c("CO", "AZ", "UT")) {
+    return("Southwest")
+  } else if (state %in% c("IL")) {
+    return("Illinois")
+  } else if (state %in% c("MI", "IN", "OH", "KY")) {
+    return("Central")
+  } else if (state %in% c("TN", "GA", "WV", "VA", "NC", "MD", "DE", "VT", "NH", "MA", "CT", "RI", "ME")) {
+    return("East Coast")
+  } else if (state %in% c("NY", "NJ")) {
+    return("NY Metro")
+  } else if (state %in% c("NM", "KS", "TX", "OK", "MO", "AR", "LA", "MS", "AL", "FL")) {
+    return("Southern")
+  } else {
+    return("Unknown")
+  }
+}
+
+old_portfolio$Region <- mapply(assign_region, old_portfolio$Preferred.Address...State.Code,
+                               old_portfolio$Zip.Code)
+```
+
+## Model 1: Gift Amount
+```{r}
+library(tidyr)
+gift_cols <- c("X2021.FY.Total.Unrestricted.Gifts", "X2022.FY.Total.Unrestricted.Gifts", "X2023.FY.Total.Unrestricted.Gifts", 
+                  "X2024.FY.Total.Unrestricted.Gifts", "X2025.FY.Total.Unrestricted.Gifts")
+
+long_data_gifts <- old_portfolio %>% ## make rowwise by donor by year
+  gather(key = "Year", value = "Gift.Amount", all_of(gift_cols)) %>%
+  mutate(Year = as.integer(gsub("X", "", gsub(".FY.Total.Unrestricted.Gifts", "", Year))))
+```
+
+```{r}
+interaction <- long_data_gifts %>% select(ID.Number,Institutional.Suffix,  Most.Recent.UNR.Gift.Legal.Amount, Most.Recent.UNR.Gift.Designation, Primary.Constituent.Home.Address.City, Preferred.Address...State.Code,State..Geo, Age, X70.5..Ind, Has.Spouse.Indicator, Spouse.First.Undergrad.Degree.Year, Consecutive.Years, Current.Campaign.Production.Household.Extended.Amount, Lifetime.Production.Household.Extended.Amount, Active.Giving.Society.Affiliation.List, Sorin...Current.Year.., Sorin...One.Year.Prior..,
+Rockne...Current.Year..,Rockne...One.Year.Prior..,Law...Current.Year.., Law...One.Year.Prior.., Grad.Bus...Current.Year.., Grad.Bus...One.Year.Prior.., Current.Parent.Ind, Monogram...Big.4, Monogram...Non.Big.4, Dual.Domer.Household, General.Active.Giving.Society, General.Gift.Designation, Region, Year, Gift.Amount, Region, Age.Group) %>% #select cols
+  mutate(YearsAgo = Year - 2025) %>% 
+  mutate(Consecutive.Years = Consecutive.Years + YearsAgo, Age = Age + YearsAgo, Gift.Amount = ifelse(is.na(Gift.Amount), 0, Gift.Amount), X70.5..Ind = ifelse(Age > 70, 1, 0)) %>% #year adjusting stats
+  mutate(Alumni = ifelse(substring(Institutional.Suffix, first = 1, last =2) =="AL", 1, 0), Friend = ifelse(substring(Institutional.Suffix, first = 1, last =2) =="FR", 1, 0), GradYear = ifelse(Alumni == 1, substring(Institutional.Suffix, first = 3, last =4), -1)) %>% select(-Institutional.Suffix) 
+
+
+longer1 <- interaction %>% filter(Year == 2024) %>% rename(Sorin = Sorin...One.Year.Prior..,
+Rockne = Rockne...One.Year.Prior.., Law = Law...One.Year.Prior..,, GradBus =Grad.Bus...One.Year.Prior..) %>%  select(-c(Sorin...Current.Year..,Rockne...Current.Year.., Law...Current.Year.., Grad.Bus...Current.Year..))
+
+longer2 <- interaction %>% filter(Year == 2025) %>% rename(Sorin = Sorin...Current.Year..,
+Rockne = Rockne...Current.Year.., Law = Law...Current.Year..,, GradBus =Grad.Bus...Current.Year..) %>%  select(-c(Sorin...One.Year.Prior..,Rockne...One.Year.Prior.., Law...One.Year.Prior.., Grad.Bus...One.Year.Prior..))
+
+longer3 <- interaction %>% filter(Year != 2025 & Year != 2024) %>%  rename(Sorin = Sorin...Current.Year..,
+Rockne = Rockne...Current.Year.., Law = Law...Current.Year..,, GradBus =Grad.Bus...Current.Year..) %>% select(-c(Sorin...One.Year.Prior..,Rockne...One.Year.Prior.., Law...One.Year.Prior.., Grad.Bus...One.Year.Prior..)) %>% mutate(Sorin = 0, Rockne = 0, Law = 0, GradBus = 0)
+
+all_int = data.frame()
+all_int = rbind(longer1, longer2, longer3)
+```
+
+Get next_gift amount
+```{r}
+all_int <- all_int %>%
+  arrange(ID.Number, Year) %>%
+  group_by(ID.Number) %>%
+  mutate(next_gift = lead(Gift.Amount)) %>%
+  ungroup()
+```
+
+```{r}
+library(randomForest)
+set.seed(12345)
+
+mean_age <- mean(all_int$Age, na.rm = TRUE)
+all_int$Age[is.na(all_int$Age)] <- mean_age
+
+scaled <- all_int %>% select(-ID.Number, -Gift.Amount, -next_gift, -Year, -YearsAgo) %>% select(where(is.numeric)) %>% scale() %>% as.data.frame
+
+non_numeric_data <- all_int %>% select(where(~ !is.numeric(.)))
+scaled$ID.Number <- all_int$ID.Number
+scaled$Gift.Amount <- all_int$Gift.Amount
+scaled$next_gift <- all_int$next_gift
+scaled$Year <- all_int$Year
+scaled$YearsAgo <- all_int$YearsAgo
+joined <- cbind(non_numeric_data, scaled)
+
+train <- joined %>% filter(Year != 2025)
+test <- joined %>% filter(Year == 2025)
+
+
+interaction_model <- randomForest(next_gift ~ Age + Region  + Consecutive.Years + General.Gift.Designation + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Has.Spouse.Indicator  + Consecutive.Years + Lifetime.Production.Household.Extended.Amount + Current.Parent.Ind + YearsAgo * Gift.Amount, 
+                                  data = train, importance = TRUE)
+
+#summary(interaction_model)
+```
+
+```{r}
+importance(interaction_model)
+```
+
+```{r}
+predictions <- predict(interaction_model, newdata = test)
+test$predicted_gift_amount <- predictions
+```
+
+```{r}
+ranked <- test %>% arrange(desc(predicted_gift_amount))
+
+ranked$Rank_gift <- rank(-ranked$predicted_gift_amount)
+```
+
+## Model 2: Tenure
+```{r}
+na_counts <- colSums(is.na(old_portfolio))
+
+cols_with_na <- names(na_counts)[na_counts > 0]
+```
+
+```{r}
+cols_with_na <- setdiff(
+  cols_with_na,
+  c("Age", "X2025.FY.Total.Unrestricted.Gifts", "X2024.FY.Total.Unrestricted.Gifts", "X2023.FY.Total.Unrestricted.Gifts", "X2022.FY.Total.Unrestricted.Gifts", "X2021.FY.Total.Unrestricted.Gifts", "Most.Recent.UNR.Gift.Date" ))
+```
+
+```{r, warning = FALSE}
+train_data <- old_portfolio %>% 
+  select(-cols_with_na) %>%
+  mutate(
+        X2025.FY.Total.Unrestricted.Gifts = replace_na(X2025.FY.Total.Unrestricted.Gifts, 0),
+        X2024.FY.Total.Unrestricted.Gifts = replace_na(X2024.FY.Total.Unrestricted.Gifts, 0),
+        X2023.FY.Total.Unrestricted.Gifts = replace_na(X2023.FY.Total.Unrestricted.Gifts, 0),
+        X2022.FY.Total.Unrestricted.Gifts = replace_na(X2022.FY.Total.Unrestricted.Gifts, 0),
+        X2021.FY.Total.Unrestricted.Gifts = replace_na(X2021.FY.Total.Unrestricted.Gifts, 0)) %>%
+  select(-Most.Recent.UNR.Gift.Date)
+```
+
+```{r}
+train_data$Age[is.na(train_data$Age)] <- mean(train_data$Age, na.rm = TRUE)
+```
+
+```{r}
+set.seed(12345)
+
+tenure_model <- randomForest(Consecutive.Years ~.,
+                        data = train_data)
+```
+
+```{r}
+predictions2 <- predict(tenure_model)
+train_data$predicted_tenure_length <- predictions2
+```
+
+```{r}
+ranked2 <- train_data %>% arrange(desc(predicted_tenure_length))
+
+ranked2$Rank_tenure <- rank(-ranked2$predicted_tenure_length)
+```
+
+## Merge
+```{r}
+merged <- data.frame()
+merged <- merge(ranked %>% select(ID.Number, Rank_gift, Region), ranked2 %>% select(ID.Number, Rank_tenure, Region)) %>% arrange(Rank_gift)
+```
+
+
+## Take 1,000 per region
+```{r}
+target_gift <- merged %>% group_by(Region) %>% arrange(Rank_gift) %>% slice_head(n = 1575)
+target_tenure <- merged %>% group_by(Region) %>% arrange(Rank_tenure) %>% slice_head(n = 1575)
+
+ids_in_both <- intersect(target_gift$ID.Number, target_tenure$ID.Number)
+length(ids_in_both)
+
+df <- target_gift %>% filter(ID.Number %in% target_tenure$ID.Number)
+df %>% group_by(Region) %>% summarize(count = n())
+```
+
+Fill by taking 1-1 from each dataframe
+```{r}
+over <- c("Illinois", "NY Metro", "Southern", "Southwest")
+over_regions <- df %>% filter((Region %in% over)) %>%
+  group_by(Region) %>%
+  arrange(Rank_gift, by_group = TRUE) %>%
+  slice_head(n = 1000) %>%
+  ungroup()
+
+# under
+under_regions <- data.frame()
+under <- c("Central", "East Coast", "Northwest")
+counts <- df %>% filter((Region %in% under)) %>% count(Region, name = "n_existing")
+to_fill <- rep(1000, length(under)) - counts$n_existing
+
+for (i in 1:length(under)) {
+  region <- under[i]
+  
+  filtered_gift <- target_gift %>% filter(Region == region, !(ID.Number %in% df$ID.Number)) %>%
+    arrange(Rank_gift) %>% slice_head(n = ceiling(to_fill[i]/2))
+  filtered_tenure <- target_tenure %>% filter(Region == region, !(ID.Number %in% df$ID.Number)) %>%
+    arrange(Rank_tenure) %>% slice_head(n = floor(to_fill[i]/2))
+  
+  under_regions <- rbind(under_regions, filtered_gift, filtered_tenure, df %>% filter(Region == region))
+}
+```
+
+```{r}
+new <- data.frame()
+new <- rbind(over_regions, under_regions)
+new %>% group_by(Region) %>% summarize(count = n())
+```
+
+Merge all stats back
+```{r}
+new_all_data <- new %>% inner_join(old_portfolio, by = "ID.Number")
+
+sum(new_all_data$X70.5..Ind, na.rm = TRUE) / nrow(new_all_data)
+
+preds <- test %>% select(ID.Number, predicted_gift_amount)
+preds2 <- train_data %>% select(ID.Number, predicted_tenure_length)
+new_all_data2 <- merge(new_all_data, preds, by = "ID.Number") 
+new_all_data2 <- merge(new_all_data2, preds2, by = "ID.Number")
+```
+
+```{r}
+new_all_data2 <- new_all_data2 %>% select(-Region.y) %>% rename(Region = Region.x)
+
+write.csv(new_all_data2, file = "our_new_portfolio.csv")
+```
+
+
+## Comparison to original "new" portfolio
+6575 v. 6842
+```{r}
+original_new = read.csv("New Portfolio.csv")
+
+intersect(original_new$ID.Number, old_portfolio$ID.Number)
+
+original_new %>% filter(ID.Number %in% old_portfolio$ID.Number)
+```
+
+```{r}
+ids_original <- original_new$ID.Number
+ids_new <- new_all_data$ID.Number
+ranked %>% filter(ID.Number %in% ids_original) %>% summarize(total_amount_original = sum(predicted_gift_amount))
+ranked %>% filter(ID.Number %in% ids_new) %>% summarize(total_amount_new = sum(predicted_gift_amount))
+```
+
+
