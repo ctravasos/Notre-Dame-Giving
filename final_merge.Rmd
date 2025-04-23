@@ -56,5 +56,20 @@ weighted_ids <- cbind(old_ids,weighted_sum %>% select(tenure_sum, tenure_rank)) 
 
 merged = merge(weighted_ids, model_output, by = "ID.Number") %>% arrange(Rank_gift, tenure_rank)  #merge and fill
 
+colnames(old)
+```
+
+```{r for tableau}
+gags = ten_importance %>% filter(grepl("^General\\.Active\\.Giving\\.Society", term))%>%
+  mutate(Var = gsub("^General\\.Active\\.Giving\\.Society", "", term), term = "General Active Giving Society")
+
+ggd = ten_importance %>% filter(grepl("^General\\.Gift\\.Designation", term))%>%
+  mutate(Var = gsub("^General\\.Gift\\.Designation", "", term), term = "General Gift Designation")
+
+other = ten_importance %>% filter(!grepl("^General\\.Gift\\.Designation", term))%>% filter(!grepl("^General\\.Active\\.Giving\\.Society", term)) %>% mutate(term = c("Has Spouse", "Monogram Non Big 4", "Alumni", "Monogram Big 4", "Dual Domer Household", "Current Parent")) %>% mutate(Var = NA)
+
+tenure_importance = rbind(other, gags, ggd)
+write.csv(tenure_importance, "clean_ten_importance.csv")
 
 ```
+

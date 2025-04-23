@@ -113,8 +113,20 @@ long_data_gifts <- old_portfolio %>% ## make rowwise by donor by year
 ```{r}
 interaction <- long_data_gifts %>% select(ID.Number,Institutional.Suffix,  Most.Recent.UNR.Gift.Legal.Amount, Most.Recent.UNR.Gift.Designation, Primary.Constituent.Home.Address.City, Preferred.Address...State.Code,State..Geo, Age, X70.5..Ind, Has.Spouse.Indicator, Spouse.First.Undergrad.Degree.Year, Consecutive.Years, Current.Campaign.Production.Household.Extended.Amount, Lifetime.Production.Household.Extended.Amount, Active.Giving.Society.Affiliation.List, Sorin...Current.Year.., Sorin...One.Year.Prior..,
 Rockne...Current.Year..,Rockne...One.Year.Prior..,Law...Current.Year.., Law...One.Year.Prior.., Grad.Bus...Current.Year.., Grad.Bus...One.Year.Prior.., Current.Parent.Ind, Monogram...Big.4, Monogram...Non.Big.4, Dual.Domer.Household, General.Active.Giving.Society, General.Gift.Designation, Region, Year, Gift.Amount, Region, Age.Group) %>% #select cols
-  mutate(YearsAgo = Year - 2025) %>% 
-  mutate(Consecutive.Years = Consecutive.Years + YearsAgo, Age = Age + YearsAgo, Gift.Amount = ifelse(is.na(Gift.Amount), 0, Gift.Amount), X70.5..Ind = ifelse(Age > 70, 1, 0)) %>% #year adjusting stats
+  mutate(YearsAgo = Year - 2025) 
+
+mean_age <- mean(interaction$Age, na.rm = TRUE) #impute age
+interaction$Age[is.na(interaction$Age)] <- mean_age
+
+# Age Group
+interaction$Age.Group <- cut(
+  interaction$Age,
+  breaks = c(-Inf, 17, 22, 34, 44, 59, 75, Inf),
+  labels = c("<18", "18–22", "23–34", "35–44", "45–59", "60–75", "75+"),
+  right = TRUE
+)
+
+ interaction <- interaction %>% mutate(Consecutive.Years = Consecutive.Years + YearsAgo, Age = Age + YearsAgo, Gift.Amount = ifelse(is.na(Gift.Amount), 0, Gift.Amount), X70.5..Ind = ifelse(Age > 70, 1, 0)) %>% #year adjusting stats
   mutate(Alumni = ifelse(substring(Institutional.Suffix, first = 1, last =2) =="AL", 1, 0), Friend = ifelse(substring(Institutional.Suffix, first = 1, last =2) =="FR", 1, 0), GradYear = ifelse(Alumni == 1, substring(Institutional.Suffix, first = 3, last =4), -1)) %>% select(-Institutional.Suffix) 
 
 
@@ -144,10 +156,9 @@ all_int <- all_int %>%
 library(randomForest)
 set.seed(12345)
 
-mean_age <- mean(all_int$Age, na.rm = TRUE)
-all_int$Age[is.na(all_int$Age)] <- mean_age
 
-scaled <- all_int %>% select(-ID.Number, -Gift.Amount, -next_gift, -Year, -YearsAgo) %>% select(where(is.numeric)) %>% scale() %>% as.data.frame
+
+scaled <- all_int %>% select(-ID.Number, -Gift.Amount, -next_gift, -Year, -YearsAgo, -Most.Recent.UNR.Gift.Legal.Amount) %>% select(where(is.numeric)) %>% scale() %>% as.data.frame
 
 non_numeric_data <- all_int %>% select(where(~ !is.numeric(.)))
 scaled$ID.Number <- all_int$ID.Number
@@ -157,11 +168,17 @@ scaled$Year <- all_int$Year
 scaled$YearsAgo <- all_int$YearsAgo
 joined <- cbind(non_numeric_data, scaled)
 
+colnames(joined)
+summary(joined)
+
 train <- joined %>% filter(Year != 2025)
 test <- joined %>% filter(Year == 2025)
+sum(is.na(train))
+summary(train)
 
 
-interaction_model <- randomForest(next_gift ~ Age + Region  + Consecutive.Years + General.Gift.Designation + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Has.Spouse.Indicator  + Consecutive.Years + Lifetime.Production.Household.Extended.Amount + Current.Parent.Ind + YearsAgo * Gift.Amount, 
+
+interaction_model <- randomForest(next_gift ~ Preferred.Address...State.Code + Region  + Consecutive.Years + General.Gift.Designation + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Has.Spouse.Indicator + Lifetime.Production.Household.Extended.Amount + GradYear + Sorin + Rockne +Law + GradBus +Alumni + Friend + Age.Group + YearsAgo * Gift.Amount, 
                                   data = train, importance = TRUE)
 
 #summary(interaction_model)
@@ -173,6 +190,7 @@ gift_imp <- gift_imp[order(gift_imp[, "%IncMSE"], decreasing = TRUE), , drop = F
 gift_imp
 
 #write.csv(gift_imp, "gift_amount_importance.csv")
+
 ```
 
 ```{r}
