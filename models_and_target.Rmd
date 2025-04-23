@@ -152,7 +152,7 @@ all_int <- all_int %>%
   ungroup()
 ```
 
-```{r}
+```{r eval = false}
 library(randomForest)
 set.seed(12345)
 
@@ -161,6 +161,7 @@ set.seed(12345)
 scaled <- all_int %>% select(-ID.Number, -Gift.Amount, -next_gift, -Year, -YearsAgo, -Most.Recent.UNR.Gift.Legal.Amount) %>% select(where(is.numeric)) %>% scale() %>% as.data.frame
 
 non_numeric_data <- all_int %>% select(where(~ !is.numeric(.)))
+
 scaled$ID.Number <- all_int$ID.Number
 scaled$Gift.Amount <- all_int$Gift.Amount
 scaled$next_gift <- all_int$next_gift
@@ -174,15 +175,85 @@ summary(joined)
 train <- joined %>% filter(Year != 2025)
 test <- joined %>% filter(Year == 2025)
 sum(is.na(train))
-summary(train)
 
 
 
-interaction_model <- randomForest(next_gift ~ Preferred.Address...State.Code + Region  + Consecutive.Years + General.Gift.Designation + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Has.Spouse.Indicator + Lifetime.Production.Household.Extended.Amount + GradYear + Sorin + Rockne +Law + GradBus +Alumni + Friend + Age.Group + YearsAgo * Gift.Amount, 
+interaction_model <- randomForest(next_gift ~ Region  + Consecutive.Years + General.Gift.Designation + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Has.Spouse.Indicator + Lifetime.Production.Household.Extended.Amount + GradYear + Sorin + Rockne +Law + GradBus +Alumni + Friend + Age.Group + YearsAgo * Gift.Amount, 
                                   data = train, importance = TRUE)
 
 #summary(interaction_model)
 ```
+
+```{r xgb}
+library(fastDummies)
+library(xgboost)
+pre_process = all_int %>% select(next_gift, Region  , Consecutive.Years , General.Gift.Designation , Current.Parent.Ind , Monogram...Big.4 , Monogram...Non.Big.4 , Dual.Domer.Household , Has.Spouse.Indicator , Lifetime.Production.Household.Extended.Amount , GradYear , Sorin , Rockne ,Law , GradBus ,Alumni , Friend , Age.Group , YearsAgo , Gift.Amount, Year) 
+
+non_numeric_data <- pre_process %>% select(where(~ !is.numeric(.)))
+
+scaled <- all_int %>% select(-ID.Number, -Gift.Amount, -next_gift, -Year, -YearsAgo, -Most.Recent.UNR.Gift.Legal.Amount) %>% select(where(is.numeric)) %>% scale() %>% as.data.frame
+
+dummy_data <- dummy_cols(non_numeric_data, remove_first_dummy = FALSE, remove_selected_columns = TRUE)
+scaled$ID.Number <- pre_process$ID.Number
+scaled$Gift.Amount <- pre_process$Gift.Amount
+scaled$next_gift <- pre_process$next_gift
+scaled$Year <- pre_process$Year
+scaled$YearsAgo <- pre_process$YearsAgo
+joined <- cbind(dummy_data, scaled)
+
+colnames(joined)
+summary(joined)
+
+train <- joined %>% filter(Year != 2025)
+test <- joined %>% filter(Year == 2025)
+sum(is.na(train))
+
+
+X = train %>% select(-next_gift, -Year) %>% as.matrix()
+target = train %>% select(next_gift)
+dtrain <- xgb.DMatrix(data = X, label = target$next_gift)
+
+
+
+model_xgb <- xgboost(
+  data = dtrain,
+  objective = "reg:squarederror",  # for standard regression
+  max_depth = 3,
+  eta = 0.1,
+  nrounds = 100,
+  verbose = 0
+)
+
+
+importance <- xgb.importance(model = model_xgb)
+xgb.plot.importance(importance)
+importance
+
+
+#Check accuracy of training data
+# Predict on training data
+train_preds <- predict(model_xgb, dtrain)
+
+# Actuals
+train_actuals <- getinfo(dtrain, "label")
+
+# Combine into a data frame
+results <- data.frame(
+  actual = train_actuals,
+  predicted = train_preds
+)
+
+library(forecast)
+accuracy(results$actual, results$predicted)
+
+
+#Make preds on test
+predictions <- predict(model_xgb, newdata = test %>% select(-next_gift, -Year) %>% as.matrix())
+test$predicted_gift_amount <- predictions
+
+
+```
+
 
 ```{r}
 gift_imp <- importance(interaction_model)
@@ -206,6 +277,7 @@ ranked$Rank_gift <- rank(-ranked$predicted_gift_amount)
 
 ## Model 2: Tenure
 ```{r}
+library(randomForest)
 na_counts <- colSums(is.na(old_portfolio))
 
 cols_with_na <- names(na_counts)[na_counts > 0]
