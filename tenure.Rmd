@@ -146,7 +146,31 @@ gls_mod <- gls(
 summary(gls_mod)
 ```
 
-A handful of gift designations (e.g. Student, Notre, Rockne).
+Variable importance
+```{r}
+library(dplyr); library(nlme)
+
+std_data <- old_clean %>%
+  mutate(across(where(is.numeric), scale))
+
+gls_std <- gls(
+  Consecutive.Years ~ Age.Group + Age + Region + General.Gift.Designation +
+    General.Active.Giving.Society + Current.Parent.Ind + Monogram...Big.4 +
+    Monogram...Non.Big.4 + Dual.Domer.Household + Last.Gift.Days.Ago,
+  weights = varExp(form = ~ fitted(.)),
+  data = std_data
+)
+
+library(broom.mixed)
+imp_beta <- tidy(gls_std) |>
+  filter(term != "(Intercept)") |>
+  mutate(abs_beta = abs(estimate)) |>
+  arrange(desc(abs_beta))
+
+imp_beta
+```
+
+
 
 ```{r}
 AIC(model, gls_mod)
