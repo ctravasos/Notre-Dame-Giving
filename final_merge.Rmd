@@ -15,11 +15,13 @@ ten_input = read.csv("Model Input")
 ten_importance = read.csv("Variable Importance 3") %>% select(term, estimate)
 ten_cols = colnames(ten_input %>% select(-Age.Group, -Age, -Region, -X, -Last.Gift.Days.Ago))
 
+model_output
+model_output = read.csv("ranked_gift2.csv") %>% select(-X)
 
-model_output = read.csv("ranked_gift.csv") %>% select(-X)
+#model_output = read.csv("ranked_gift.csv") %>% select(-X)
 
 #Add the columns of importance by pivoting
-old = read.csv("old_portfolio.csv") %>%
+old = read.csv("old_1.csv") %>%
   mutate(Alumni = ifelse(substr(Institutional.Suffix, start = 1, stop =2) =="AL", 1, 0)) %>%
   mutate(Values1 = ifelse(General.Gift.Designation == "", 0, 1), Values2 = ifelse(General.Active.Giving.Society == "",0,1))%>%
   mutate(General.Gift.Designation = ifelse(General.Gift.Designation == "", "None", General.Gift.Designation), General.Active.Giving.Society = ifelse(General.Active.Giving.Society == "", "None", General.Active.Giving.Society)) %>%
@@ -56,7 +58,21 @@ weighted_ids <- cbind(old_ids,weighted_sum %>% select(tenure_sum, tenure_rank)) 
 
 merged = merge(weighted_ids, model_output, by = "ID.Number") %>% arrange(Rank_gift, tenure_rank)  #merge and fill
 
-colnames(old)
+regions_ids = long_data_gifts %>% select(ID.Number, Region, State..Geo) %>% distinct()
+
+merged_w_regions= merge(x = merged, y = regions_ids, by = "ID.Number", all.x =TRUE)
+
+
+summary(merged_w_regions)
+
+target_gift <- merged_w_regions %>% group_by(Region) %>% arrange(Rank_gift) %>% slice_head(n = 1750)
+target_tenure <- merged_w_regions %>% group_by(Region) %>% arrange(tenure_rank) %>% slice_head(n = 1750)
+ids_in_both <- intersect(target_gift$ID.Number, target_tenure$ID.Number)
+length(ids_in_both)
+
+df <- target_gift %>% filter(ID.Number %in% target_tenure$ID.Number)
+df %>% group_by(Region) %>% summarize(count = n())
+
 ```
 
 ```{r for tableau}

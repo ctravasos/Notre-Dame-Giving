@@ -107,7 +107,10 @@ gift_cols <- c("X2021.FY.Total.Unrestricted.Gifts", "X2022.FY.Total.Unrestricted
 
 long_data_gifts <- old_portfolio %>% ## make rowwise by donor by year
   gather(key = "Year", value = "Gift.Amount", all_of(gift_cols)) %>%
-  mutate(Year = as.integer(gsub("X", "", gsub(".FY.Total.Unrestricted.Gifts", "", Year))))
+  mutate(Year = as.integer(gsub("X", "", gsub(".FY.Total.Unrestricted.Gifts", "", Year))))  %>% distinct()
+
+colnames(long_data_gifts)
+write.csv(long_data_gifts %>% filter(Year == 2025), "old_1.csv")
 ```
 
 ```{r}
@@ -187,11 +190,12 @@ interaction_model <- randomForest(next_gift ~ Region  + Consecutive.Years + Gene
 ```{r xgb}
 library(fastDummies)
 library(xgboost)
-pre_process = all_int %>% select(next_gift, Region  , Consecutive.Years , General.Gift.Designation , Current.Parent.Ind , Monogram...Big.4 , Monogram...Non.Big.4 , Dual.Domer.Household , Has.Spouse.Indicator , Lifetime.Production.Household.Extended.Amount , GradYear , Sorin , Rockne ,Law , GradBus ,Alumni , Friend , Age.Group , YearsAgo , Gift.Amount, Year) 
+pre_process = all_int %>% select(ID.Number, next_gift, Region  , Consecutive.Years , General.Gift.Designation , Current.Parent.Ind , Monogram...Big.4 , Monogram...Non.Big.4 , Dual.Domer.Household , Has.Spouse.Indicator , Lifetime.Production.Household.Extended.Amount , GradYear , Sorin , Rockne ,Law , GradBus ,Alumni , Friend , Age.Group , YearsAgo , Gift.Amount, Year) 
+sum(is.na(pre_process))
 
 non_numeric_data <- pre_process %>% select(where(~ !is.numeric(.)))
 
-scaled <- all_int %>% select(-ID.Number, -Gift.Amount, -next_gift, -Year, -YearsAgo, -Most.Recent.UNR.Gift.Legal.Amount) %>% select(where(is.numeric)) %>% scale() %>% as.data.frame
+scaled <- pre_process %>% select(-ID.Number, -Gift.Amount, -next_gift, -Year, -YearsAgo) %>% select(where(is.numeric)) %>% scale() %>% as.data.frame
 
 dummy_data <- dummy_cols(non_numeric_data, remove_first_dummy = FALSE, remove_selected_columns = TRUE)
 scaled$ID.Number <- pre_process$ID.Number
@@ -204,12 +208,15 @@ joined <- cbind(dummy_data, scaled)
 colnames(joined)
 summary(joined)
 
-train <- joined %>% filter(Year != 2025)
-test <- joined %>% filter(Year == 2025)
+train <- joined %>% filter(Year != 2025) %>% select(-ID.Number, -Year)
+train_ids = joined %>% filter(Year != 2025) %>% select(ID.Number)
+test <- joined %>% filter(Year == 2025) %>% select(-ID.Number, -next_gift, -Year)
+test_ids = joined %>% filter(Year == 2025) %>% select(ID.Number) 
+
 sum(is.na(train))
+colnames(train)
 
-
-X = train %>% select(-next_gift, -Year) %>% as.matrix()
+X = train %>% select(-next_gift) %>% as.matrix()
 target = train %>% select(next_gift)
 dtrain <- xgb.DMatrix(data = X, label = target$next_gift)
 
@@ -227,7 +234,7 @@ model_xgb <- xgboost(
 
 importance <- xgb.importance(model = model_xgb)
 xgb.plot.importance(importance)
-importance
+write.csv(importance, "gift_amount_importance.csv")
 
 
 #Check accuracy of training data
@@ -246,11 +253,20 @@ results <- data.frame(
 library(forecast)
 accuracy(results$actual, results$predicted)
 
-
 #Make preds on test
-predictions <- predict(model_xgb, newdata = test %>% select(-next_gift, -Year) %>% as.matrix())
-test$predicted_gift_amount <- predictions
+predictions <- predict(model_xgb, newdata = as.matrix(test))
 
+test$predicted_gift_amount <- predictions
+test$ID.Number = test_ids$ID.Number
+
+#add ranks
+ranked <- test %>% arrange(desc(predicted_gift_amount))
+
+ranked$Rank_gift <- rank(-ranked$predicted_gift_amount)
+
+ranked_xgb = ranked %>% select(ID.Number, predicted_gift_amount, Rank_gift)
+
+write.csv(ranked_xgb, "ranked_gift2.csv")
 
 ```
 
@@ -273,7 +289,12 @@ test$predicted_gift_amount <- predictions
 ranked <- test %>% arrange(desc(predicted_gift_amount))
 
 ranked$Rank_gift <- rank(-ranked$predicted_gift_amount)
+
+
 ```
+
+
+STOP HERE
 
 ## Model 2: Tenure
 ```{r}
