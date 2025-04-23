@@ -269,6 +269,24 @@ ranked_xgb = ranked %>% select(ID.Number, predicted_gift_amount, Rank_gift)
 write.csv(ranked_xgb, "ranked_gift2.csv")
 
 ```
+```{r}
+source("a_insights_shap_functions.r")
+
+shap_result <- shap.score.rank(xgb_model = model_xgb, 
+                X_train = X,
+                shap_approx = F)
+
+
+shap_long = shap.prep(shap = shap_result,
+                           X_train = X,
+                           top_n = 30)
+filtered_shap = shap_long %>% filter(grepl(pattern = "^(Region)|^(GradYear)|^(Has)|^(Age)|^(Dual)", x = variable) ) %>%
+  droplevels() 
+
+
+shap = plot.shap.summary(data_long = filtered_shap)
+
+```
 
 
 ```{r}
