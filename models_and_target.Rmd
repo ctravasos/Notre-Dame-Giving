@@ -9,6 +9,9 @@ output: html_document
 ```{r, message = FALSE, warning = FALSE}
 library(dplyr)
 old_portfolio = read.csv("Old Portfolio.csv")
+new_portfolio = read.csv("New Portfolio.csv")
+
+old_portfolio <- rbind(old_portfolio, new_portfolio)
 
 # cleaning
 # Char --> Date
@@ -165,7 +168,11 @@ interaction_model <- randomForest(next_gift ~ Age + Region  + Consecutive.Years 
 ```
 
 ```{r}
-importance(interaction_model)
+gift_imp <- importance(interaction_model)
+gift_imp <- gift_imp[order(gift_imp[, "%IncMSE"], decreasing = TRUE), , drop = FALSE]
+gift_imp
+
+#write.csv(gift_imp, "gift_amount_importance.csv")
 ```
 
 ```{r}
@@ -211,14 +218,23 @@ train_data$Age[is.na(train_data$Age)] <- mean(train_data$Age, na.rm = TRUE)
 ```{r}
 set.seed(12345)
 
-tenure_model <- randomForest(Consecutive.Years ~.,
-                        data = train_data)
+tenure_model <- randomForest(Consecutive.Years ~ Age + Region + General.Gift.Designation + Current.Parent.Ind + Monogram...Big.4 + Monogram...Non.Big.4 + Dual.Domer.Household + Has.Spouse.Indicator  + Consecutive.Years + Lifetime.Production.Household.Extended.Amount + Current.Parent.Ind + X2025.FY.Total.Unrestricted.Gifts + X2024.FY.Total.Unrestricted.Gifts + X2023.FY.Total.Unrestricted.Gifts + X2022.FY.Total.Unrestricted.Gifts + X2021.FY.Total.Unrestricted.Gifts, 
+                                  data = train_data, importance = TRUE)
 ```
 
 ```{r}
 predictions2 <- predict(tenure_model)
 train_data$predicted_tenure_length <- predictions2
 ```
+
+```{r}
+tenure_imp <- importance(tenure_model)
+tenure_imp <- tenure_imp[order(tenure_imp[, "%IncMSE"], decreasing = TRUE), , drop = FALSE]
+tenure_imp
+
+#write.csv(tenure_imp, "tenure_model_importance.csv")
+```
+
 
 ```{r}
 ranked2 <- train_data %>% arrange(desc(predicted_tenure_length))
@@ -235,8 +251,8 @@ merged <- merge(ranked %>% select(ID.Number, Rank_gift, Region), ranked2 %>% sel
 
 ## Take 1,000 per region
 ```{r}
-target_gift <- merged %>% group_by(Region) %>% arrange(Rank_gift) %>% slice_head(n = 1575)
-target_tenure <- merged %>% group_by(Region) %>% arrange(Rank_tenure) %>% slice_head(n = 1575)
+target_gift <- merged %>% group_by(Region) %>% arrange(Rank_gift) %>% slice_head(n = 1750)
+target_tenure <- merged %>% group_by(Region) %>% arrange(Rank_tenure) %>% slice_head(n = 1750)
 
 ids_in_both <- intersect(target_gift$ID.Number, target_tenure$ID.Number)
 length(ids_in_both)
@@ -247,7 +263,7 @@ df %>% group_by(Region) %>% summarize(count = n())
 
 Fill by taking 1-1 from each dataframe
 ```{r}
-over <- c("Illinois", "NY Metro", "Southern", "Southwest")
+over <- c("Illinois", "NY Metro", "Northwest", "Southern", "Southwest")
 over_regions <- df %>% filter((Region %in% over)) %>%
   group_by(Region) %>%
   arrange(Rank_gift, by_group = TRUE) %>%
@@ -256,7 +272,7 @@ over_regions <- df %>% filter((Region %in% over)) %>%
 
 # under
 under_regions <- data.frame()
-under <- c("Central", "East Coast", "Northwest")
+under <- c("Central", "East Coast")
 counts <- df %>% filter((Region %in% under)) %>% count(Region, name = "n_existing")
 to_fill <- rep(1000, length(under)) - counts$n_existing
 
@@ -301,10 +317,6 @@ write.csv(new_all_data2, file = "our_new_portfolio.csv")
 6575 v. 6842
 ```{r}
 original_new = read.csv("New Portfolio.csv")
-
-intersect(original_new$ID.Number, old_portfolio$ID.Number)
-
-original_new %>% filter(ID.Number %in% old_portfolio$ID.Number)
 ```
 
 ```{r}
@@ -313,5 +325,6 @@ ids_new <- new_all_data$ID.Number
 ranked %>% filter(ID.Number %in% ids_original) %>% summarize(total_amount_original = sum(predicted_gift_amount))
 ranked %>% filter(ID.Number %in% ids_new) %>% summarize(total_amount_new = sum(predicted_gift_amount))
 ```
+
 
 
