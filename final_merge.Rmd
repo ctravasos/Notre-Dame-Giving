@@ -1,0 +1,60 @@
+---
+title: "Final_Final"
+author: "Imogen Meers"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r }
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tidyverse)
+
+ten_input = read.csv("Model Input")
+ten_importance = read.csv("Variable Importance 3") %>% select(term, estimate)
+ten_cols = colnames(ten_input %>% select(-Age.Group, -Age, -Region, -X, -Last.Gift.Days.Ago))
+
+
+model_output = read.csv("ranked_gift.csv") %>% select(-X)
+
+#Add the columns of importance by pivoting
+old = read.csv("old_portfolio.csv") %>%
+  mutate(Alumni = ifelse(substr(Institutional.Suffix, start = 1, stop =2) =="AL", 1, 0)) %>%
+  mutate(Values1 = ifelse(General.Gift.Designation == "", 0, 1), Values2 = ifelse(General.Active.Giving.Society == "",0,1))%>%
+  mutate(General.Gift.Designation = ifelse(General.Gift.Designation == "", "None", General.Gift.Designation), General.Active.Giving.Society = ifelse(General.Active.Giving.Society == "", "None", General.Active.Giving.Society)) %>%
+  
+  select(c(all_of(ten_cols), ID.Number, Values1, Values2)) %>% pivot_wider(names_sep = "", names_from = General.Active.Giving.Society, values_from = Values1, names_prefix = "General.Active.Giving.Society") %>%
+  
+  pivot_wider(names_sep = "", names_from = General.Gift.Designation , values_from = Values2, names_prefix = "General.Gift.Designation") %>% 
+
+  select(-c(General.Active.Giving.SocietyNone, Consecutive.Years, Institutional.Suffix,    General.Gift.DesignationNone,General.Gift.DesignationDeans, General.Gift.DesignationCorby)) #remove not used in tenure model
+
+setdiff(colnames(old), unique(ten_importance$term)) #check we have the same col names
+
+
+old_ids = old %>% select(ID.Number) #save ids
+
+df1 = old %>% select(-ID.Number) %>% zoo::na.fill(0) %>% as.data.frame() #merged without id
+df2 = ten_importance
+
+#Add weights to values based on importance
+weights <- deframe(df2)  # turns df2 into a named vector
+
+# Multiply each column by its corresponding weight
+df_weighted <- sweep(df1, 2, weights[colnames(df1)], `*`)
+
+
+weighted_sum <- df_weighted %>% 
+  rowwise() %>%
+  mutate(tenure_sum = sum(c_across(everything()), na.rm = TRUE)) %>% # Calculate row sums
+  ungroup() %>% # Remove rowwise grouping
+  mutate(tenure_rank = dense_rank(desc(tenure_sum))) # Assign ranks
+
+#Merge back with model output
+weighted_ids <- cbind(old_ids,weighted_sum %>% select(tenure_sum, tenure_rank)) #rank 1 has the most factors that lead to higher tenure
+
+merged = merge(weighted_ids, model_output, by = "ID.Number") %>% arrange(Rank_gift, tenure_rank)  #merge and fill
+
+
+```
