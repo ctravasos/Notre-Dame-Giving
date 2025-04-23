@@ -230,7 +230,27 @@ bag_mod <- randomForest(Consecutive.Years ~.,
 
 bag_mod
 ```
+```{r}
+set.seed(12345)
 
+imp <- randomForest(Consecutive.Years ~.,
+                        data = train_data,
+                    importance = TRUE)
+
+imp
+```
+
+```{r}
+par(mar = c(5, 9, 4, 2))                       
+varImpPlot(
+  imp,
+  type   = 1,                                 
+  n.var  = 20,                                 
+  sort   = TRUE,                               
+  main   = "Top 20 variables",
+  cex.lab = 0.9, cex.axis = 0.8               
+)
+```
 
 Early Spending patterns
 ```{r}
