@@ -114,31 +114,38 @@ plot(model, which = 1) # residuals vs fitted
 plot(model, which = 2) # Q‑Q plot
 ```
 
+```{r}
+new_data <- read.csv('old_portfolio.csv')
+```
+
 
 weighted least squares (much better)
 ```{r}
-old_clean <- old_portfolio %>%
+old_clean <- new_data %>%
   select(
     Consecutive.Years, Age.Group, Age, Region,
     General.Gift.Designation, General.Active.Giving.Society,
     Current.Parent.Ind, Monogram...Big.4, Monogram...Non.Big.4,
-    Dual.Domer.Household, Last.Gift.Days.Ago
+    Dual.Domer.Household, Last.Gift.Days.Ago, Has.Spouse.Indicator, Institutional.Suffix
   ) %>%
+  mutate(Alumni = substr(Institutional.Suffix, start = 1, stop = 2) == "AL") %>%
   na.omit()
 
 library(nlme)
 gls_mod <- gls(
   Consecutive.Years ~ 
-    Age.Group +
-    Age +
-    Region +
+  #  Age.Group +
+  #  Age +
+  #  Region +
     General.Gift.Designation +
     General.Active.Giving.Society +
     Current.Parent.Ind +
     Monogram...Big.4 +
     Monogram...Non.Big.4 +
     Dual.Domer.Household +
-    Last.Gift.Days.Ago,
+    Last.Gift.Days.Ago + 
+    Has.Spouse.Indicator +
+    Alumni,
   weights = varExp(form = ~ fitted(.)),
   data = old_clean
 )
@@ -154,20 +161,25 @@ std_data <- old_clean %>%
   mutate(across(where(is.numeric), scale))
 
 gls_std <- gls(
-  Consecutive.Years ~ Age.Group + Age + Region + General.Gift.Designation +
+  Consecutive.Years ~ General.Gift.Designation +
     General.Active.Giving.Society + Current.Parent.Ind + Monogram...Big.4 +
-    Monogram...Non.Big.4 + Dual.Domer.Household + Last.Gift.Days.Ago,
+    Monogram...Non.Big.4 + Dual.Domer.Household + Last.Gift.Days.Ago +  Has.Spouse.Indicator +
+    Alumni,
   weights = varExp(form = ~ fitted(.)),
   data = std_data
 )
 
 library(broom.mixed)
-imp_beta <- tidy(gls_std) |>
-  filter(term != "(Intercept)") |>
-  mutate(abs_beta = abs(estimate)) |>
-  arrange(desc(abs_beta))
+imp_beta <- tidy(gls_std) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(abs_beta = abs(estimate)) %>%
+  arrange(desc(estimate))
 
 imp_beta
+```
+
+```{r}
+write.csv(imp_beta, "Variable Importance")
 ```
 
 
