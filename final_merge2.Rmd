@@ -1,0 +1,144 @@
+---
+title: "Final_Final"
+author: "Imogen Meers"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r }
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tidyverse)
+
+ten_input = read.csv("Model Input.txt")
+ten_importance = read.csv("Variable Importance 3.txt") %>% select(term, estimate)
+ten_cols = colnames(ten_input %>% select(-Age.Group, -Age, -Region, -X, -Last.Gift.Days.Ago))
+
+model_output
+model_output = read.csv("ranked_gift2.csv") %>% select(-X)
+
+#model_output = read.csv("ranked_gift.csv") %>% select(-X)
+
+#Add the columns of importance by pivoting
+old = read.csv("old_1.csv") %>%
+  mutate(Alumni = ifelse(substr(Institutional.Suffix, start = 1, stop =2) =="AL", 1, 0)) %>%
+  mutate(Values1 = ifelse(General.Gift.Designation == "", 0, 1), Values2 = ifelse(General.Active.Giving.Society == "",0,1))%>%
+  mutate(General.Gift.Designation = ifelse(General.Gift.Designation == "", "None", General.Gift.Designation), General.Active.Giving.Society = ifelse(General.Active.Giving.Society == "", "None", General.Active.Giving.Society)) %>%
+  
+  select(c(all_of(ten_cols), ID.Number, Values1, Values2)) %>% pivot_wider(names_sep = "", names_from = General.Active.Giving.Society, values_from = Values1, names_prefix = "General.Active.Giving.Society") %>%
+  
+  pivot_wider(names_sep = "", names_from = General.Gift.Designation , values_from = Values2, names_prefix = "General.Gift.Designation") %>% 
+
+  select(-c(General.Active.Giving.SocietyNone, Consecutive.Years, Institutional.Suffix,    General.Gift.DesignationNone,General.Gift.DesignationDeans, General.Gift.DesignationCorby)) #remove not used in tenure model
+
+setdiff(colnames(old), unique(ten_importance$term)) #check we have the same col names
+
+
+old_ids = old %>% select(ID.Number) #save ids
+
+df1 = old %>% select(-ID.Number) %>% zoo::na.fill(0) %>% as.data.frame() #merged without id
+df2 = ten_importance
+
+#Add weights to values based on importance
+weights <- deframe(df2)  # turns df2 into a named vector
+
+# Multiply each column by its corresponding weight
+df_weighted <- sweep(df1, 2, weights[colnames(df1)], `*`)
+
+
+weighted_sum <- df_weighted %>% 
+  rowwise() %>%
+  mutate(tenure_sum = sum(c_across(everything()), na.rm = TRUE)) %>% # Calculate row sums
+  ungroup() %>% # Remove rowwise grouping
+  mutate(tenure_rank = dense_rank(desc(tenure_sum))) # Assign ranks
+
+#Merge back with model output
+weighted_ids <- cbind(old_ids,weighted_sum %>% select(tenure_sum, tenure_rank)) #rank 1 has the most factors that lead to higher tenure
+
+merged = merge(weighted_ids, model_output, by = "ID.Number") %>% arrange(Rank_gift, tenure_rank)  #merge and fill
+
+regions_ids = long_data_gifts %>% select(ID.Number, Region, State..Geo) %>% distinct()
+
+merged_w_regions= merge(x = merged, y = regions_ids, by = "ID.Number", all.x =TRUE)
+
+
+summary(merged_w_regions)
+merged_w_regions %>% group_by(Region) %>% summarize(count = n())
+
+# select top 2,000 in terms of predicted amount
+final_top <- merged_w_regions %>% filter(Region != "Unknown") %>%
+  group_by(Region) %>%
+  arrange(Rank_gift, by_group = TRUE) %>%
+  slice_head(n = 2000) %>%
+  ungroup()
+#final_top %>% group_by(Region) %>% summarize(count = n())
+
+# slice by tenure score
+final_top_cut <- final_top %>% group_by(Region) %>%
+  arrange(tenure_rank, by_group = TRUE) %>%
+  slice_head(n = 1000) %>%
+  ungroup()
+final_top_cut %>% group_by(Region) %>% summarize(count = n())
+```
+
+Get all columns back
+```{r}
+old_clean <- old_portfolio %>% select(-one_of(setdiff(names(final_top_cut), "ID.Number")))
+
+final_df <- final_top_cut %>%
+  left_join(old_clean, by = "ID.Number")
+final_df <- final_df %>% select(-tenure_rank, -Rank_gift)
+
+#write.csv(final_df, "our_new_portfolio.csv")
+```
+
+Compare to ND Giving Original New Portfolio
+```{r}
+original_new = read.csv("New Portfolio.csv")
+```
+
+```{r}
+ids_original <- original_new$ID.Number
+ids_new <- final_df$ID.Number
+ranked_xgb %>% filter(ID.Number %in% ids_original) %>% summarize(total_amount_original = sum(predicted_gift_amount))
+ranked_xgb %>% filter(ID.Number %in% ids_new) %>% summarize(total_amount_new = sum(predicted_gift_amount))
+```
+
+
+Top Cities per Region
+```{r}
+top_cities <- final_df %>%
+  group_by(Region, Primary.Constituent.Home.Address.City) %>%
+  summarise(
+    count = n(),
+    total_pred_gifts = sum(predicted_gift_amount),
+    .groups = "drop"
+  ) %>%
+  arrange(Region, desc(count)) %>%
+  group_by(Region) %>%
+  slice_head(n = 5)
+top_cities
+write.csv(top_cities, "top_cities.csv")
+```
+
+```{r}
+final_df %>% group_by(Region) %>% summarize(total_pred_gifts = sum(predicted_gift_amount))
+```
+
+
+Tableau
+```{r for tableau}
+gags = ten_importance %>% filter(grepl("^General\\.Active\\.Giving\\.Society", term))%>%
+  mutate(Var = gsub("^General\\.Active\\.Giving\\.Society", "", term), term = "General Active Giving Society")
+
+ggd = ten_importance %>% filter(grepl("^General\\.Gift\\.Designation", term))%>%
+  mutate(Var = gsub("^General\\.Gift\\.Designation", "", term), term = "General Gift Designation")
+
+other = ten_importance %>% filter(!grepl("^General\\.Gift\\.Designation", term))%>% filter(!grepl("^General\\.Active\\.Giving\\.Society", term)) %>% mutate(term = c("Has Spouse", "Monogram Non Big 4", "Alumni", "Monogram Big 4", "Dual Domer Household", "Current Parent")) %>% mutate(Var = NA)
+
+tenure_importance = rbind(other, gags, ggd)
+write.csv(tenure_importance, "clean_ten_importance.csv")
+
+```
+
